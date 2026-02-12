@@ -199,7 +199,7 @@
 
     <script>
         // REPLACE THIS URL WITH YOUR GOOGLE APPS SCRIPT WEB APP URL
-        const SCRIPT_URL = 'YOUR_SCRIPT_URL_HERE';
+        const SCRIPT_URL = 'https://script.google.com/a/macros/sparkno9.com/s/AKfycbwMjsQm22YM5xuBfQ8Krl2xajYWQclrQtEE9liDu0oCIIrJ6wl0OglOHg5VBNVNe2Ho9A/exec';
 
         const cardDesigns = [
             {
