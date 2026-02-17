@@ -20,7 +20,6 @@
         .float { animation: float 3s ease-in-out infinite; }
         .brand-color { color: #5678EC; }
         .brand-bg { background-color: #5678EC; }
-        .brand-border { border-color: #5678EC; }
         .brand-gradient-1 { background: linear-gradient(135deg, #5678EC 0%, #7B8FEF 100%); }
         .brand-gradient-2 { background: linear-gradient(135deg, #5678EC 0%, #FF6B9D 100%); }
         .brand-gradient-3 { background: linear-gradient(135deg, #5678EC 0%, #A78BFA 100%); }
@@ -49,7 +48,7 @@
             <svg class="w-5 h-5 text-green-600 fill-green-600" viewBox="0 0 24 24">
                 <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
             </svg>
-            <p class="text-green-800 font-medium">Card sent! It'll appear on the wall shortly 💌</p>
+            <p class="text-green-800 font-medium">Card sent and added to the Valentine's Wall! 💌</p>
         </div>
 
         <div id="errorMessage" class="hidden mb-8 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
@@ -106,7 +105,6 @@
             </div>
         </div>
 
-        <!-- Valentine's Wall -->
         <div class="mt-16">
             <div class="text-center mb-8">
                 <h2 class="text-3xl font-bold text-gray-900 mb-2 flex items-center justify-center gap-3">
@@ -131,7 +129,9 @@
     </div>
 
     <script>
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz21uiDzq_fw4FTV7N4sQgwsP9PN6uilukCNgacWNFK2EMibhTFdI2p7GurnXAxhXSe8Q/exec';
+        const API_KEY = '$2a$10$94OrJp22xjLJC/oS1sxOHO6nhH5hDeBDZgdXy/UI3mpGF6EInrL5O';
+        const BIN_ID_KEY = 'sparkValentinesBinId';
+        let binId = localStorage.getItem(BIN_ID_KEY);
 
         const cardDesigns = [
             { id: 1, title: "The Experimenter", preview: "Let's test the hypothesis: You + Me = Success", gradientClass: "brand-gradient-1", icon: "🔬" },
@@ -144,60 +144,66 @@
 
         let selectedCard = null;
 
-        // JSONP helper - bypasses CORS
-        function jsonpFetch(url) {
-            return new Promise((resolve, reject) => {
-                const callbackName = 'jsonpCallback_' + Date.now();
-                const script = document.createElement('script');
-                
-                window[callbackName] = function(data) {
-                    resolve(data);
-                    delete window[callbackName];
-                    document.body.removeChild(script);
-                };
-
-                script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + callbackName;
-                script.onerror = () => {
-                    reject(new Error('JSONP request failed'));
-                    delete window[callbackName];
-                    document.body.removeChild(script);
-                };
-                document.body.appendChild(script);
+        async function createBin(cards) {
+            const res = await fetch('https://api.jsonbin.io/v3/b', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': API_KEY,
+                    'X-Bin-Name': 'spark-valentines',
+                    'X-Bin-Private': 'false'
+                },
+                body: JSON.stringify({ cards })
             });
+            const data = await res.json();
+            binId = data.metadata.id;
+            localStorage.setItem(BIN_ID_KEY, binId);
+            return binId;
         }
 
-        async function loadAllCards() {
+        async function loadCards() {
             try {
-                const data = await jsonpFetch(SCRIPT_URL + '?action=getCards');
-                return data.cards || [];
-            } catch (error) {
-                console.error('Error loading cards:', error);
+                // If no binId, search for existing bin first
+                if (!binId) {
+                    const searchRes = await fetch('https://api.jsonbin.io/v3/b?name=spark-valentines', {
+                        headers: { 'X-Master-Key': API_KEY }
+                    });
+                    // If not found, create a new bin
+                    if (!searchRes.ok) {
+                        await createBin([]);
+                        return [];
+                    }
+                    const bins = await searchRes.json();
+                    if (bins && bins.length > 0) {
+                        binId = bins[0].id || bins[0]._id;
+                        localStorage.setItem(BIN_ID_KEY, binId);
+                    } else {
+                        await createBin([]);
+                        return [];
+                    }
+                }
+
+                const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+                    headers: { 'X-Master-Key': API_KEY }
+                });
+                const data = await res.json();
+                return data.record.cards || [];
+            } catch (err) {
+                console.error('Error loading cards:', err);
                 return [];
             }
         }
 
-        async function saveCard(card) {
-            try {
-                // Use an image ping to send data via GET (CORS-free)
-                const params = new URLSearchParams({
-                    action: 'addCard',
-                    id: card.id,
-                    designId: card.designId,
-                    designTitle: card.designTitle,
-                    designIcon: card.designIcon,
-                    designGradient: card.designGradient,
-                    sender: card.sender,
-                    recipient: card.recipient,
-                    message: card.message,
-                    timestamp: card.timestamp
-                });
-
-                await jsonpFetch(SCRIPT_URL + '?' + params.toString());
-                return true;
-            } catch (error) {
-                console.error('Error saving card:', error);
-                return false;
-            }
+        async function saveCards(cards) {
+            if (!binId) await createBin(cards);
+            await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': API_KEY
+                },
+                body: JSON.stringify({ cards })
+            });
         }
 
         // Render card grid
@@ -216,9 +222,7 @@
 
         function selectCard(id, buttonElement) {
             selectedCard = id;
-            document.querySelectorAll('#cardGrid button').forEach(btn => {
-                btn.classList.remove('ring-4', 'ring-white', 'scale-105');
-            });
+            document.querySelectorAll('#cardGrid button').forEach(btn => btn.classList.remove('ring-4', 'ring-white', 'scale-105'));
             buttonElement.classList.add('ring-4', 'ring-white', 'scale-105');
             updatePreview();
             validateForm();
@@ -232,18 +236,15 @@
             const message = document.getElementById('message').value;
 
             if (!selectedCard) { previewCard.classList.add('hidden'); return; }
-
             const card = cardDesigns.find(c => c.id === selectedCard);
             previewCard.classList.remove('hidden');
-
             previewContent.innerHTML = `
                 <div class="p-6 rounded-lg ${card.gradientClass} text-white">
                     <div class="text-3xl mb-3">${card.icon}</div>
                     <p class="text-sm opacity-90 mb-4">${card.preview}</p>
                     ${message ? `<div class="bg-white/20 rounded p-3 mt-4"><p class="text-sm italic">"${message}"</p></div>` : ''}
                     ${(sender || recipient) ? `<div class="mt-4 text-xs opacity-75">${[sender && 'From: ' + sender, recipient && 'To: ' + recipient].filter(Boolean).join(' → ')}</div>` : ''}
-                </div>
-            `;
+                </div>`;
         }
 
         function validateForm() {
@@ -260,19 +261,19 @@
             if (!selectedCard || !sender || !recipient || !message) return;
 
             const card = cardDesigns.find(c => c.id === selectedCard);
-            const newCard = {
-                id: Date.now(),
-                designId: card.id,
-                designTitle: card.title,
-                designIcon: card.icon,
-                designGradient: card.gradientClass,
-                sender, recipient, message,
-                timestamp: new Date().toISOString()
-            };
+            try {
+                const existing = await loadCards();
+                existing.unshift({
+                    id: Date.now(),
+                    designId: card.id,
+                    designTitle: card.title,
+                    designIcon: card.icon,
+                    designGradient: card.gradientClass,
+                    sender, recipient, message,
+                    timestamp: new Date().toISOString()
+                });
+                await saveCards(existing);
 
-            const saved = await saveCard(newCard);
-
-            if (saved) {
                 document.getElementById('successMessage').classList.remove('hidden');
                 setTimeout(() => document.getElementById('successMessage').classList.add('hidden'), 3000);
 
@@ -283,9 +284,8 @@
                 document.querySelectorAll('#cardGrid button').forEach(btn => btn.classList.remove('ring-4', 'ring-white', 'scale-105'));
                 document.getElementById('previewCard').classList.add('hidden');
                 validateForm();
-
-                setTimeout(renderWall, 1500);
-            } else {
+                renderWall();
+            } catch (err) {
                 document.getElementById('errorMessage').classList.remove('hidden');
                 setTimeout(() => document.getElementById('errorMessage').classList.add('hidden'), 3000);
             }
@@ -294,11 +294,10 @@
         async function renderWall() {
             const wall = document.getElementById('valentinesWall');
             const count = document.getElementById('wallCardCount');
-            const allCards = await loadAllCards();
+            const cards = await loadCards();
+            count.textContent = cards.length;
 
-            count.textContent = allCards.length;
-
-            if (allCards.length === 0) {
+            if (cards.length === 0) {
                 wall.innerHTML = `
                     <div class="col-span-full text-center py-12 text-gray-400">
                         <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -309,7 +308,7 @@
                 return;
             }
 
-            wall.innerHTML = allCards.map(card => `
+            wall.innerHTML = cards.map(card => `
                 <div class="p-6 rounded-xl ${card.designGradient} text-white shadow-lg fade-in hover:scale-105 transition-transform">
                     <div class="text-3xl mb-3">${card.designIcon}</div>
                     <h3 class="font-bold mb-2">${card.designTitle}</h3>
@@ -320,8 +319,7 @@
                         <div>From: ${card.sender}</div>
                         <div>To: ${card.recipient}</div>
                     </div>
-                </div>
-            `).join('');
+                </div>`).join('');
         }
 
         ['sender', 'recipient', 'message'].forEach(id => {
@@ -329,7 +327,6 @@
         });
         document.getElementById('sendButton').addEventListener('click', sendCard);
 
-        // Initial load + auto-refresh every 30s
         renderWall();
         setInterval(renderWall, 30000);
     </script>
